@@ -6,20 +6,17 @@
 
 
 #include "histio.c"
+#include "utils.c"
 
 #include "tunfold-17.9/TUnfoldDensity.h"
 
-TH2F* get_hist( const char* hname ) {
-   TH2F* hp = (TH2F*) gDirectory -> FindObject( hname ) ;
-   if ( hp == 0x0 ) { printf("\n\n *** can't find %s\n\n", hname ) ; gSystem->Exit(-1) ; }
-   return hp ;
-}
-
 //----------
 
-   void unfold1( int rn_seed = 1234, const char* hist_name = "h_simple_gen_vs_obs",
-                 int ngen = 1e6,
-                 const char* input_file = "unfold-hists-output_django.root" ) {
+   void unfold1(
+                 const char* input_file = "unfold-hists2-binning-24-12-output_bce_mse_rapgap.root",
+                 int rn_seed = 1234, const char* hist_name = "h_sf3_gen_vs_obs",
+                 int ngen = 1e5
+                 ) {
 
       printf("\n\n Loading TUnfold shared library.\n\n") ;
       gSystem -> Load( "tunfold-17.9/libunfold.a" ) ;
@@ -33,7 +30,7 @@ TH2F* get_hist( const char* hname ) {
       gDirectory -> ls() ;
       printf("\n\n") ;
 
-      TH2F* h_in_gen_vs_obs = get_hist( hist_name ) ;
+      TH2F* h_in_gen_vs_obs = get_hist2d( hist_name ) ;
 
       TH1* h_obs_source = h_in_gen_vs_obs -> ProjectionX( "h_obs_source" ) ;
       TH1* h_gen_source = h_in_gen_vs_obs -> ProjectionY( "h_gen_source" ) ;
@@ -139,6 +136,29 @@ TH2F* get_hist( const char* hname ) {
            (bin,TMath::Sqrt(histEmatTotal->GetBinContent(bin,bin)));
       }
 
+      //-- calculate the correlation coefficients matrix
+      TH2* correlation_matrix = (TH2*) histEmatTotal -> Clone( "correlation_matrix" ) ;
+      correlation_matrix -> SetTitle( "Correlation coefficients" ) ;
+
+      for ( int xbi=1; xbi<=histEmatTotal->GetNbinsX(); xbi++ ) {
+         for ( int ybi=1; ybi<=histEmatTotal->GetNbinsY(); ybi++ ) {
+
+            float rho = 1. ;
+            float sigma_x2, sigma_y2 ;
+
+            sigma_x2 = histEmatTotal->GetBinContent( xbi, xbi ) ;
+            sigma_y2 = histEmatTotal->GetBinContent( ybi, ybi ) ;
+            if ( sigma_x2 > 0 && sigma_y2 > 0 ) {
+               rho = histEmatTotal -> GetBinContent( xbi, ybi )  / sqrt( sigma_x2 * sigma_y2 ) ;
+            }
+            correlation_matrix -> SetBinContent( xbi, ybi, rho ) ;
+
+         } // ybi
+      } // xbi
+
+      correlation_matrix -> SetMinimum( -1. ) ;
+      correlation_matrix -> SetMinimum( -1. ) ;
+
 
       // get global correlation coefficients
       // for this calculation one has to specify whether the
@@ -155,6 +175,23 @@ TH2F* get_hist( const char* hname ) {
                                         );
 
 
+      TH2F* h_normalized_response = (TH2F*) h_in_gen_vs_obs -> Clone( "h_normalized_response" ) ;
+      for ( int ybi=1; ybi<=h_in_gen_vs_obs->GetNbinsY(); ybi++ ) {
+         float row_sum = 0. ;
+         for ( int xbi=1; xbi<=h_in_gen_vs_obs->GetNbinsX(); xbi++ ) {
+            row_sum += h_in_gen_vs_obs -> GetBinContent( xbi, ybi ) ;
+         } // xbi
+         for ( int xbi=1; xbi<=h_in_gen_vs_obs->GetNbinsX(); xbi++ ) {
+            if ( row_sum > 0 ) {
+               h_normalized_response -> SetBinContent( xbi, ybi, ( h_in_gen_vs_obs -> GetBinContent( xbi, ybi ) ) / row_sum ) ;
+               h_normalized_response -> SetBinError( xbi, ybi, 0. ) ;
+            } else {
+               h_normalized_response -> SetBinContent( xbi, ybi, 0. ) ;
+               h_normalized_response -> SetBinError( xbi, ybi, 0. ) ;
+            }
+         } // xbi
+      } // ybi
+
 
       gStyle -> SetOptStat(0) ;
 
@@ -163,6 +200,9 @@ TH2F* get_hist( const char* hname ) {
 
       TH1* h_gen_compare = (TH1*) h_gen_source -> Clone( "h_gen_compare" ) ;
       h_gen_compare -> Scale( ( histMunfold -> Integral() )/( h_gen_source -> Integral() ) ) ;
+
+      TExec* change_hist_palette = new TExec( "change_hist_palette", "Setup2DhistPalette();" );
+      TExec* change_cor_palette = new TExec( "change_cor_palette", "SetupCorrelationPalette();" );
 
       TCanvas* can1 = (TCanvas*) gDirectory -> FindObject( "can1" ) ;
       if ( can1 == 0x0 ) can1 = new TCanvas( "can1", "", 50, 50, 1000, 1000 ) ;
@@ -173,21 +213,36 @@ TH2F* get_hist( const char* hname ) {
 
 
       can1 -> cd(1) ;
-      h_in_gen_vs_obs -> Draw("colz") ;
+      //h_in_gen_vs_obs -> Draw("colz") ;
+      h_normalized_response -> Draw("colz") ;
+      change_hist_palette -> Draw() ;
+      h_normalized_response -> Draw("colz same") ;
 
       can1 -> cd(2) ;
       histMunfold -> Draw() ;
       h_gen_compare -> Draw("same hist") ;
 
       can1 -> cd(3) ;
-      h_obs_source -> Draw("hist") ;
+      /////h_obs_source -> Draw("hist") ;
+
+      correlation_matrix->Draw("colz") ;
+      change_cor_palette -> Draw() ;
+      correlation_matrix->Draw("colz same") ;
+
 
       can1 -> cd(4) ;
       h_gen_source -> Draw("hist") ;
 
+      TString ts( input_file ) ;
+      ts.ReplaceAll( "hists2", "results" ) ;
+      printf("\n Output file: %s\n", ts.Data() ) ;
 
-      can1->SaveAs("test.png");
-      can1->SaveAs("test.pdf");
+
+      saveHist( ts.Data(), "*" ) ;
+
+
+      /////////can1->SaveAs("test.png");
+      /////////can1->SaveAs("test.pdf");
 
    }
 
