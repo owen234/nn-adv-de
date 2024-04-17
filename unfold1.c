@@ -13,16 +13,17 @@
 //----------
 
    void unfold1(
-                 const char* input_file = "unfold-hists2-binning-24-12-output_bce_mse_rapgap.root",
-                 int rn_seed = 1234, const char* hist_name = "h_sf3_gen_vs_obs",
-                 int ngen = 1e5
+                 int ngen = 1e5,
+                 const char* hist_name = "h_sf3_gen_vs_obs",
+                 int rn_seed = 1234,
+                 const char* input_file = "unfold-hists2-binning-24-12-output_bce_mse_rapgap.root"
                  ) {
 
       printf("\n\n Loading TUnfold shared library.\n\n") ;
       gSystem -> Load( "tunfold-17.9/libunfold.a" ) ;
       printf("\n\n Done.\n\n") ;
 
-      gDirectory -> Delete( "h*" ) ;
+      gDirectory -> Delete( "*" ) ;
 
       loadHist( input_file ) ;
 
@@ -235,6 +236,7 @@
 
       TString ts( input_file ) ;
       ts.ReplaceAll( "hists2", "results" ) ;
+      ts.ReplaceAll( "hists3", "results" ) ;
       printf("\n Output file: %s\n", ts.Data() ) ;
 
 
